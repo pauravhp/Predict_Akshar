@@ -1,3 +1,4 @@
+# Sketching code adapted from -
 # https://www.thepythoncode.com/code/make-a-drawing-program-with-python
 # https://www.thepythoncode.com/article/make-a-drawing-program-with-python
 
@@ -10,7 +11,29 @@ import ctypes
 import tensorflow as tf
 import numpy as np
 
+import threading
+
+import bson
+
 from PIL import Image
+
+from datetime import datetime
+
+from pymongo import MongoClient
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Connecting to MongoDB
+mongodb_url = os.getenv("MONGODB_URL")
+client = MongoClient(mongodb_url)
+db = client["Test"]  # Database name
+collection = db["PredLogs"]  # Collection name
+
+# Lock for MongoDB access, to avoid any sort of race conditions or errors with MongoDB access
+mongo_lock = threading.Lock()
 
 # Pygame Configuration
 pygame.init()
@@ -107,6 +130,48 @@ class Button:
 
 # Handler Functions
 
+# Function to insert data into MongoDB
+
+# Document contents - date, time, prediction image, prediction made
+# Asynchronous Programming
+#   Create a thread that calls the insert data upon creation (check limits for argument data)
+#   Mutex Locks when inserting
+# insert_data is called when prediction is made
+
+# Further functionality
+#    If its the same image, no new document is added, the prediction is updated with the newest one
+#    or appeneded to
+#        Maybe create a userId for every canvas image created, and crosscheck to create new document
+
+
+def insert_data(datetime, pred_img, pred):
+    # Accquiring mutex lock
+    with mongo_lock:
+        # Convert pred_img to Binary BSON
+        binary_img = bson.Binary(pred_img)
+
+        document = {
+            "Date": datetime,
+            "Predicted Image": binary_img,
+            "Prediction made": pred,
+        }
+        result = collection.insert_one(document)
+        inserted_id = result.inserted_id
+        print(f"{inserted_id} - Prediction logged successfully!")
+
+
+# Function to handle database insertions asynchronously via threads
+def handle_database_insertion(datetime, pred_img, pred):
+    thread = threading.Thread(
+        target=insert_data,
+        args=(
+            datetime,
+            pred_img,
+            pred,
+        ),
+    )
+    thread.start()
+
 
 # Save the surface to the Disk
 def save():
@@ -192,6 +257,15 @@ def predict():
     global prediction_msg
     prediction_msg = "Prediction: " + ans_li[answer]
     print(prediction_msg)
+
+    current_datetime = datetime.now()
+    # Format the current date and time
+    formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+
+    with open("canvas.png", "rb") as file:
+        pred_img = file.read()
+
+    handle_database_insertion(formatted_datetime, pred_img, ans_li[answer])
 
 
 # Button Variables.
